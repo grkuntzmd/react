@@ -539,7 +539,7 @@ func (c *funcContext) translateExpr(expr ast.Expr) *expression {
 		plainFun := astutil.RemoveParens(e.Fun)
 
 		if astutil.IsTypeExpr(plainFun, c.p.Info.Info) {
-			return c.formatExpr("%s", c.translateConversion(e.Args[0], c.p.TypeOf(plainFun)))
+			return c.formatExpr("(%s)", c.translateConversion(e.Args[0], c.p.TypeOf(plainFun)))
 		}
 
 		sig := c.p.TypeOf(plainFun).Underlying().(*types.Signature)
@@ -1113,7 +1113,12 @@ func (c *funcContext) translateImplicitConversion(expr ast.Expr, desiredType typ
 
 	exprType := c.p.TypeOf(expr)
 	if types.Identical(exprType, desiredType) {
-		return c.translateExpr(expr)
+		switch exprType.Underlying().(type) {
+		case *types.Interface:
+			return c.formatExpr("$copyIntf(%e)", expr)
+		default:
+			return c.translateExpr(expr)
+		}
 	}
 
 	basicExprType, isBasicExpr := exprType.Underlying().(*types.Basic)
@@ -1130,11 +1135,14 @@ func (c *funcContext) translateImplicitConversion(expr ast.Expr, desiredType typ
 			// wrap JS object into js.Object struct when converting to interface
 			return c.formatExpr("new $jsObjectPtr(%e)", expr)
 		}
+		if _, isArray := exprType.Underlying().(*types.Array); isArray {
+			return c.formatExpr("new %1s($clone(%e, %1s))", c.typeName(exprType), expr)
+		}
 		if isWrapped(exprType) {
 			return c.formatExpr("new %s(%e)", c.typeName(exprType), expr)
 		}
 		if _, isStruct := exprType.Underlying().(*types.Struct); isStruct {
-			return c.formatExpr("new %1e.constructor.elem(%1e)", expr)
+			return c.formatExpr("new %1e.constructor.elem($clone(%1e, %s))", expr, c.typeName(exprType))
 		}
 	}
 
